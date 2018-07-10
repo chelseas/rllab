@@ -51,7 +51,13 @@ class VectorizedSampler(BaseSampler):
 
         policy = self.algo.policy
         import time
+
+        recur_counter = False
         while n_samples < self.algo.batch_size:
+            if recur_counter:
+                policy.light_reset() # note this function is only implemented for categorical GRU right now
+            recur_counter = not recur_counter
+
             t = time.time()
             policy.reset(dones)
             actions, agent_infos = policy.get_actions(obses)

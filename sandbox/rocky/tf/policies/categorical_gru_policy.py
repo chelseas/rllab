@@ -91,7 +91,7 @@ class CategoricalGRUPolicy(StochasticPolicy, LayersPowered, Serializable):
             self.f_step_prob = tensor_utils.compile_function(
                 [
                     flat_input_var,
-                    prob_network.step_prev_hidden_layer.input_var
+                    prob_network.step_prev_state_layer.input_var
                 ],
                 L.get_output([
                     prob_network.step_output_layer,
@@ -154,6 +154,10 @@ class CategoricalGRUPolicy(StochasticPolicy, LayersPowered, Serializable):
 
         self.prev_actions[dones] = 0.
         self.prev_hiddens[dones] = self.prob_network.hid_init_param.eval()  # get_value()
+
+    # reset the hidden states every other pass
+    def light_reset(self):
+        self.prev_hiddens[:] = self.prob_network.hid_init_param.eval()
 
     # The return value is a pair. The first item is a matrix (N, A), where each
     # entry corresponds to the action value taken. The second item is a vector

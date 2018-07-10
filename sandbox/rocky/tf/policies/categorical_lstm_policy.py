@@ -94,10 +94,11 @@ class CategoricalLSTMPolicy(StochasticPolicy, LayersPowered, Serializable):
             else:
                 feature_var = L.get_output(l_flat_feature, {feature_network.input_layer: flat_input_var})
 
+            # This function does the session.run() stuff
             self.f_step_prob = tensor_utils.compile_function(
                 [
                     flat_input_var,
-                    prob_network.step_prev_hidden_layer.input_var,
+                    prob_network.step_prev_state_layer.input_var,
                     prob_network.step_prev_cell_layer.input_var
                 ],
                 L.get_output([
@@ -176,6 +177,8 @@ class CategoricalLSTMPolicy(StochasticPolicy, LayersPowered, Serializable):
         actions, agent_infos = self.get_actions([observation])
         return actions[0], {k: v[0] for k, v in agent_infos.items()}
 
+    # I think get_actions (plural) is just implemented so that you can rollout on 
+    # multiple environments at once...
     @overrides
     def get_actions(self, observations):
         flat_obs = self.observation_space.flatten_n(observations)
@@ -187,7 +190,9 @@ class CategoricalLSTMPolicy(StochasticPolicy, LayersPowered, Serializable):
             ], axis=-1)
         else:
             all_input = flat_obs
+        # run the model!
         probs, hidden_vec, cell_vec = self.f_step_prob(all_input, self.prev_hiddens, self.prev_cells)
+        # take n different weighted samples (independently)
         actions = special.weighted_sample_n(probs, np.arange(self.action_space.n))
         prev_actions = self.prev_actions
         self.prev_actions = self.action_space.flatten_n(actions)

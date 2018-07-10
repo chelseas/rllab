@@ -6,8 +6,8 @@ import traceback
 import logging
 
 try:
-    from gym.wrappers.monitoring import logger as monitor_logger
-
+    #from gym.wrappers.monitoring import logger as monitor_logger
+    monitor_logger = logging.getLogger()
     monitor_logger.setLevel(logging.WARNING)
 except Exception as e:
     traceback.print_exc()
@@ -104,7 +104,7 @@ class GymEnv(Env, Serializable):
 
     def reset(self):
         if self._force_reset and self.monitoring:
-            from gym.wrappers.monitoring import Monitor
+            from gym.wrappers.monitor import Monitor
             assert isinstance(self.env, Monitor)
             recorder = self.env.stats_recorder
             if recorder is not None:
