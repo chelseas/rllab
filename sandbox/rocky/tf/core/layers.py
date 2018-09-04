@@ -1175,14 +1175,14 @@ class SimpleRNNLayer(Layer):
                                  regularizable=False)
         # Weights and bias for the observations
         self.W_o = self.add_param(W_o_init, (input_dim, num_units), name="W_obs")
-        self.b_o = self.add_param(b_o_init, (num_units,), name="b_o", regularizable=False)
+        self.b_o = self.add_param(b_o_init, (num_units,), name="b_obs", regularizable=False)
         # weights and bias for the hidden state
         self.W_h = self.add_param(W_h_init, (num_units, num_units), name="W_hid")
         self.b_h = self.add_param(b_h_init, (num_units,), name="b_hid", regularizable=False)
 
         # weights and bias for the output
         self.W_out = self.add_param(W_out_init, (num_units, num_units), name="W_out")
-        self.b_out = self.add_param(b_out_init, (num_units,), name="b_hid", regularizable=False)
+        self.b_out = self.add_param(b_out_init, (num_units,), name="b_out", regularizable=False)
 
         self.num_units = num_units
         self.nonlinearity = nonlinearity
@@ -1255,7 +1255,7 @@ class SimpleRNNStepLayer(MergeLayer):
     def get_output_for(self, inputs, **kwargs):
         x, hprev = inputs
         n_batch = tf.shape(x)[0]
-        print("n_batch: ". n_batch)
+        print("n_batch: ", n_batch)
         print("tf.shape(x): ", tf.shape(x))
         x = tf.reshape(x, tf.stack([n_batch, -1])) # ??
         print("x after reshape: ", x)

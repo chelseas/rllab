@@ -309,6 +309,98 @@ class GRUNetwork(object):
         return self._hid_init_param
 
 
+class SimpleRNNNetwork(object):
+    def __init__(self, name, input_shape, output_dim, hidden_dim, hidden_nonlinearity=tf.nn.relu,
+                 rnn_layer_cls=L.SimpleRNNLayer,
+                 output_nonlinearity=None, input_var=None, input_layer=None, layer_args=None):
+        with tf.variable_scope(name):
+            ## INPUT 
+            if input_layer is None:
+                # is this shape to account for n_episodes and n_timesteps_in_an_episode?
+                l_in = L.InputLayer(shape=(None, None) + input_shape, input_var=input_var, name="input")
+            else:
+                l_in = input_layer
+            # why does step input have a different input shape than regular input?
+            # what is the first dim of l_step_input? n_episodes or n_timesteps?
+            l_step_input = L.InputLayer(shape=(None,) + input_shape, name="step_input")
+            l_step_prev_state = L.InputLayer(shape=(None, hidden_dim), name="step_prev_state")
+            if layer_args is None:
+                layer_args = dict()
+            
+            ## RNN
+            l_rnn_output = rnn_layer_cls(l_in, num_units=hidden_dim, nonlinearity=hidden_nonlinearity,
+                                  hidden_init_trainable=False, name="rnn", **layer_args)
+
+            ## STEP LAYERS?
+            l_step_state = l_rnn_output.get_step_layer(l_step_input, l_step_prev_state, name="step_state")
+            l_step_hidden = l_step_state # hiddens
+            l_step_output = l_step_hidden
+
+            self._l_in = l_in
+            self._hid_init_param = l_rnn_output.h0
+            self._l_rnn = l_rnn_output
+            self._l_out = l_rnn_output
+            self._l_step_input = l_step_input
+            self._l_step_prev_state = l_step_prev_state
+            self._l_step_hidden = l_step_hidden
+            self._l_step_state = l_step_state
+            self._l_step_output = l_step_output
+            self._hidden_dim = hidden_dim
+
+    @property
+    def state_dim(self):
+        return self._hidden_dim
+
+    @property
+    def hidden_dim(self):
+        return self._hidden_dim
+
+    @property
+    def input_layer(self):
+        return self._l_in
+
+    @property
+    def input_var(self):
+        return self._l_in.input_var
+
+    @property
+    def output_layer(self):
+        return self._l_out
+
+    @property
+    def recurrent_layer(self):
+        return self._l_rnn
+
+    @property
+    def step_input_layer(self):
+        return self._l_step_input
+
+    @property
+    def step_prev_state_layer(self):
+        return self._l_step_prev_state
+
+    @property
+    def step_hidden_layer(self):
+        return self._l_step_hidden
+
+    @property
+    def step_state_layer(self):
+        return self._l_step_state
+
+    # this is a dense layer that takes the hiddens as an input
+    @property
+    def step_output_layer(self):
+        return self._l_step_output
+
+    @property
+    def hid_init_param(self):
+        return self._hid_init_param
+
+    @property
+    def state_init_param(self):
+        return self._hid_init_param
+
+
 class LSTMNetwork(object):
     def __init__(self, name, input_shape, output_dim, hidden_dim, hidden_nonlinearity=tf.nn.relu,
                  lstm_layer_cls=L.LSTMLayer,
