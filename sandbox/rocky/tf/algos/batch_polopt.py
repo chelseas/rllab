@@ -6,6 +6,7 @@ import tensorflow as tf
 from sandbox.rocky.tf.samplers.batch_sampler import BatchSampler
 from sandbox.rocky.tf.samplers.vectorized_sampler import VectorizedSampler
 from rllab.sampler.utils import rollout
+import os
 
 
 class BatchPolopt(RLAlgorithm):
@@ -20,9 +21,9 @@ class BatchPolopt(RLAlgorithm):
             policy,
             baseline,
             scope=None,
-            n_itr=500,
+            n_itr=1, #500,
             start_itr=0,
-            batch_size=5000,
+            batch_size=1, #5000,
             max_path_length=500,
             discount=0.99,
             gae_lambda=1,
@@ -132,6 +133,8 @@ class BatchPolopt(RLAlgorithm):
                     if self.pause_for_plot:
                         input("Plotting evaluation run: Press Enter to "
                               "continue...")
+
+
         self.shutdown_worker()
         if created_session:
             sess.close()

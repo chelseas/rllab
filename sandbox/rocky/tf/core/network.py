@@ -188,6 +188,7 @@ class GRUNetwork(object):
                  gru_layer_cls=L.GRULayer,
                  output_nonlinearity=None, input_var=None, input_layer=None, layer_args=None):
         with tf.variable_scope(name):
+            ## INPUT 
             if input_layer is None:
                 l_in = L.InputLayer(shape=(None, None) + input_shape, input_var=input_var, name="input")
             else:
@@ -196,29 +197,44 @@ class GRUNetwork(object):
             l_step_prev_state = L.InputLayer(shape=(None, hidden_dim), name="step_prev_state")
             if layer_args is None:
                 layer_args = dict()
+            
+            ## GRU 
             l_gru = gru_layer_cls(l_in, num_units=hidden_dim, hidden_nonlinearity=hidden_nonlinearity,
                                   hidden_init_trainable=False, name="gru", **layer_args)
+            
+            ## RESHAPE
             l_gru_flat = L.ReshapeLayer(
                 l_gru, shape=(-1, hidden_dim),
                 name="gru_flat"
             )
+
+            ## DENSE
             l_output_flat = L.DenseLayer(
                 l_gru_flat,
                 num_units=output_dim,
                 nonlinearity=output_nonlinearity,
                 name="output_flat"
             )
+
+            ## OP -- RESHAPE?
+            # this seems like the output
             l_output = L.OpLayer(
                 l_output_flat,
-                op=lambda flat_output, l_input:
-                tf.reshape(flat_output, tf.stack((tf.shape(l_input)[0], tf.shape(l_input)[1], -1))),
+                op=lambda flat_output, l_input, name:
+                tf.reshape(flat_output, tf.stack((tf.shape(l_input)[0], tf.shape(l_input)[1], -1)), name=name),
                 shape_op=lambda flat_output_shape, l_input_shape:
                 (l_input_shape[0], l_input_shape[1], flat_output_shape[-1]),
                 extras=[l_in],
                 name="output"
             )
+
+            ## STEP LAYERS?
             l_step_state = l_gru.get_step_layer(l_step_input, l_step_prev_state, name="step_state")
-            l_step_hidden = l_step_state
+            l_step_hidden = l_step_state # hiddens
+
+            ## DENSE - what I thought was the output! What's the difference between 
+            # this dense layer and the dense layer three things above?
+            # seems like these ops aren't in the graph...if I try to save the graph with them
             l_step_output = L.DenseLayer(
                 l_step_hidden,
                 num_units=output_dim,
@@ -279,6 +295,7 @@ class GRUNetwork(object):
     def step_state_layer(self):
         return self._l_step_state
 
+    # this is a dense layer that takes the hiddens as an input
     @property
     def step_output_layer(self):
         return self._l_step_output

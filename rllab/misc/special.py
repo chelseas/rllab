@@ -5,7 +5,7 @@ import theano.tensor.nnet
 import theano.tensor as TT
 import theano.tensor.extra_ops
 from collections import OrderedDict
-
+import tensorflow as tf
 
 def weighted_sample(weights, objects):
     """
@@ -66,6 +66,10 @@ def to_onehot(ind, dim):
 
 
 def to_onehot_n(inds, dim):
+    # if type(inds) == tf.Tensor:
+    #     ret = np.zeros(tf.shape(inds)[0],dim)
+    #    ret[np.arange(tf.shape(inds)[0]), inds] = 1
+    #else:
     ret = np.zeros((len(inds), dim))
     ret[np.arange(len(inds)), inds] = 1
     return ret

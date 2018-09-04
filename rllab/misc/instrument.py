@@ -425,7 +425,9 @@ def run_experiment_lite(
     # params_list = []
 
     for task in batch_tasks:
+        print("task =", task)
         call = task.pop("stub_method_call")
+        print("call= ", call)
         if use_cloudpickle:
             import cloudpickle
             data = base64.b64encode(cloudpickle.dumps(call)).decode("utf-8")

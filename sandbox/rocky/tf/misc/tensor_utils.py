@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 
 
+# returns a function, run, which takes values for the inputs and fetches to outputs
 def compile_function(inputs, outputs, log_name=None):
     def run(*input_vals):
         sess = tf.get_default_session()

@@ -358,7 +358,7 @@ class ParamLayer(Layer):
 
 class OpLayer(MergeLayer):
     def __init__(self, incoming, op,
-                 shape_op=lambda x: x, extras=None, **kwargs):
+                 shape_op=lambda x: x, extras=None, name=None, **kwargs):
         if extras is None:
             extras = []
         incomings = [incoming] + extras
@@ -366,16 +366,17 @@ class OpLayer(MergeLayer):
         self.op = op
         self.shape_op = shape_op
         self.incomings = incomings
+        self.name=name
 
     def get_output_shape_for(self, input_shapes):
         return self.shape_op(*input_shapes)
 
     def get_output_for(self, inputs, **kwargs):
-        return self.op(*inputs)
+        return self.op(*inputs, name=self.name)
 
 
 class DenseLayer(Layer):
-    def __init__(self, incoming, num_units, nonlinearity=None, W=XavierUniformInitializer(), b=tf.zeros_initializer(),
+    def __init__(self, incoming, num_units, nonlinearity=None, W=XavierUniformInitializer(), b=tf.zeros_initializer(), name=None,
                  **kwargs):
         super(DenseLayer, self).__init__(incoming, **kwargs)
         self.nonlinearity = tf.identity if nonlinearity is None else nonlinearity
@@ -389,6 +390,7 @@ class DenseLayer(Layer):
             self.b = None
         else:
             self.b = self.add_param(b, (num_units,), name="b", regularizable=False)
+        self.name=name
 
     def get_output_shape_for(self, input_shape):
         return (input_shape[0], self.num_units)
@@ -401,7 +403,8 @@ class DenseLayer(Layer):
         activation = tf.matmul(input, self.W)
         if self.b is not None:
             activation = activation + tf.expand_dims(self.b, 0)
-        return self.nonlinearity(activation)
+            print("name=", self.name)
+        return self.nonlinearity(activation, name=self.name) # can i name this op?
 
 
 class BaseConvLayer(Layer):
@@ -1003,7 +1006,7 @@ class GRULayer(Layer):
     def step(self, hprev, x):
         if self.layer_normalization:
             ln = apply_ln(self)
-            x_ru = ln(tf.matmul(x, self.W_x_ru), "x_ru")
+            x_ru = ln(tf.matmul(x, self.W_x_ru, name="first_matmul_normed"), "x_ru")
             h_ru = ln(tf.matmul(hprev, self.W_h_ru), "h_ru")
             x_r, x_u = tf.split(axis=1, num_or_size_splits=2, value=x_ru)
             h_r, h_u = tf.split(axis=1, num_or_size_splits=2, value=h_ru)
@@ -1012,17 +1015,17 @@ class GRULayer(Layer):
             r = self.gate_nonlinearity(x_r + h_r)
             u = self.gate_nonlinearity(x_u + h_u)
             c = self.nonlinearity(x_c + r * h_c)
-            h = (1 - u) * hprev + u * c
+            h = tf.add((1 - u) * hprev, u * c, name="cell_output_normed")
             return h
         else:
-            xb_ruc = tf.matmul(x, self.W_x_ruc) + tf.reshape(self.b_ruc, (1, -1))
+            xb_ruc = tf.matmul(x, self.W_x_ruc, name="first_matmul") + tf.reshape(self.b_ruc, (1, -1))
             h_ruc = tf.matmul(hprev, self.W_h_ruc)
             xb_r, xb_u, xb_c = tf.split(axis=1, num_or_size_splits=3, value=xb_ruc)
             h_r, h_u, h_c = tf.split(axis=1, num_or_size_splits=3, value=h_ruc)
             r = self.gate_nonlinearity(xb_r + h_r)
             u = self.gate_nonlinearity(xb_u + h_u)
             c = self.nonlinearity(xb_c + r * h_c)
-            h = (1 - u) * hprev + u * c
+            h = tf.add((1 - u) * hprev, u * c, name="cell_output")
             return h
 
     def get_step_layer(self, l_in, l_prev_hidden, name=None):
@@ -1149,6 +1152,118 @@ class TfGRULayer(Layer):
     def get_step_layer(self, l_in, l_prev_hidden, name=None):
         return GRUStepLayer(incomings=[l_in, l_prev_hidden], recurrent_layer=self, name=name)
 
+class SimpleRNNLayer(Layer):
+    """
+    A simple recurrent layer:
+    """
+
+    def __init__(self, incoming, num_units, nonlinearity=tf.nn.relu,
+                 W_o_init=XavierUniformInitializer(), W_h_init=OrthogonalInitializer(), W_out_init=XavierUniformInitializer(),
+                 b_o_init=tf.zeros_initializer(), b_h_init=tf.zeros_initializer(), b_out_init=tf.zeros_initializer(), hidden_init=tf.zeros_initializer(), 
+                 hidden_init_trainable=False, layer_normalization=False, **kwargs):
+
+        super(SimpleRNNLayer, self).__init__(incoming, **kwargs)
+
+        input_shape = self.input_shape[2:] # ignore num samples and episode length dimensions?
+
+        input_dim = np.prod(input_shape)
+
+        self.layer_normalization = layer_normalization
+
+        # Weights for the initial hidden state
+        self.h0 = self.add_param(hidden_init, (num_units,), name="h0", trainable=hidden_init_trainable,
+                                 regularizable=False)
+        # Weights and bias for the observations
+        self.W_o = self.add_param(W_o_init, (input_dim, num_units), name="W_obs")
+        self.b_o = self.add_param(b_o_init, (num_units,), name="b_o", regularizable=False)
+        # weights and bias for the hidden state
+        self.W_h = self.add_param(W_h_init, (num_units, num_units), name="W_hid")
+        self.b_h = self.add_param(b_h_init, (num_units,), name="b_hid", regularizable=False)
+
+        # weights and bias for the output
+        self.W_out = self.add_param(W_out_init, (num_units, num_units), name="W_out")
+        self.b_out = self.add_param(b_out_init, (num_units,), name="b_hid", regularizable=False)
+
+        self.num_units = num_units
+        self.nonlinearity = nonlinearity
+        self.norm_params = dict()
+
+        # pre-run the step method to initialize the normalization parameters
+        h_dummy = tf.placeholder(dtype=tf.float32, shape=(None, num_units), name="h_dummy")
+        x_dummy = tf.placeholder(dtype=tf.float32, shape=(None, input_dim), name="x_dummy")
+        self.step(h_dummy, x_dummy)
+
+    def step(self, hprev, obs):
+        if self.layer_normalization:
+            ln = apply_ln(self)
+            # bias is included in the normalization
+            W_x_o = ln(tf.matmul(obs, self.W_o, name="first_matmul_normed"), "W_x_obs")
+            W_x_h = ln(tf.matmul(hprev, self.W_h), "W_x_h")
+            x_p_h = self.nonlinearity(W_x_o + W_x_h)
+            h = ln(tf.matmul(x_p_h, self.W_out, name="cell_output_normed?"), "x_p_h")
+            return h
+        else:
+            Wxopb = tf.matmul(obs, self.W_o, name="first_matmul") + self.b_o
+            Wxhpb = tf.matmul(hprev, self.W_h) + self.b_h
+            x_p_h = self.nonlinearity(Wxopb + Wxhpb)
+            h = tf.add(tf.matmul(x_p_h, self.W_out), self.b_out, name="cell_output")
+            return h
+
+    def get_step_layer(self, l_in, l_prev_hidden, name=None):
+        return SimpleRNNStepLayer(incomings=[l_in, l_prev_hidden], recurrent_layer=self, name=name)
+
+    def get_output_shape_for(self, input_shape):
+        n_batch, n_steps = input_shape[:2]
+        return n_batch, n_steps, self.num_units
+
+    def get_output_for(self, input, **kwargs):
+        input_shape = tf.shape(input)
+        n_batches = input_shape[0]
+        n_steps = input_shape[1]
+        input = tf.reshape(input, tf.stack([n_batches, n_steps, -1]))
+        if 'recurrent_state' in kwargs and self in kwargs['recurrent_state']:
+            h0s = kwargs['recurrent_state'][self]
+        else:
+            h0s = tf.tile(
+                tf.reshape(self.h0, (1, self.num_units)),
+                (n_batches, 1)
+            )
+        # flatten extra dimensions
+        shuffled_input = tf.transpose(input, (1, 0, 2))
+        hs = tf.scan(
+            self.step,
+            elems=shuffled_input,
+            initializer=h0s
+        )
+        shuffled_hs = tf.transpose(hs, (1, 0, 2))
+        if 'recurrent_state_output' in kwargs:
+            kwargs['recurrent_state_output'][self] = shuffled_hs
+        return shuffled_hs
+
+class SimpleRNNStepLayer(MergeLayer):
+    def __init__(self, incomings, recurrent_layer, **kwargs):
+        super(SimpleRNNStepLayer, self).__init__(incomings, **kwargs)
+        self._rnn_layer = recurrent_layer
+
+    def get_params(self, **tags):
+        return self._rnn_layer.get_params(**tags)
+
+    def get_output_shape_for(self, input_shapes):
+        n_batch = input_shapes[0][0]
+        return n_batch, self._rnn_layer.num_units
+
+    def get_output_for(self, inputs, **kwargs):
+        x, hprev = inputs
+        n_batch = tf.shape(x)[0]
+        print("n_batch: ". n_batch)
+        print("tf.shape(x): ", tf.shape(x))
+        x = tf.reshape(x, tf.stack([n_batch, -1])) # ??
+        print("x after reshape: ", x)
+        print("self.input_shapes: ", self.input_shapes)
+        print("self.input_shapes[0][1]: ", self.input_shapes[0][1])
+        x.set_shape((None, self.input_shapes[0][1]))
+        print("x after set shape: ", x)
+        return self._rnn_layer.step(hprev, x)
 
 class PseudoLSTMLayer(Layer):
     """

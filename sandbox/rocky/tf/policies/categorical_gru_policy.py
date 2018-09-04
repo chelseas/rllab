@@ -72,7 +72,8 @@ class CategoricalGRUPolicy(StochasticPolicy, LayersPowered, Serializable):
                 output_dim=env_spec.action_space.n,
                 hidden_dim=hidden_dim,
                 hidden_nonlinearity=hidden_nonlinearity,
-                output_nonlinearity=tf.nn.softmax,
+                output_nonlinearity=tf.nn.relu, 
+                # tho right now maybe its easy to find as the only softmax in the network
                 gru_layer_cls=gru_layer_cls,
                 name="prob_network"
             )
@@ -88,15 +89,23 @@ class CategoricalGRUPolicy(StochasticPolicy, LayersPowered, Serializable):
             else:
                 feature_var = L.get_output(l_flat_feature, {feature_network.input_layer: flat_input_var})
 
+            # this function is called to produce the action_weights !!
             self.f_step_prob = tensor_utils.compile_function(
+                # inputs
                 [
-                    flat_input_var,
-                    prob_network.step_prev_state_layer.input_var
+                    flat_input_var, #observations
+                    prob_network.step_prev_state_layer.input_var # previous hiddens or init hiddens?
                 ],
+                # output(s?)
                 L.get_output([
-                    prob_network.step_output_layer,
-                    prob_network.step_hidden_layer
-                ], {prob_network.step_input_layer: feature_var})
+                    prob_network.step_output_layer, # layers for which to 'get_output'
+                    # step_output_layer applies a FC layer to the output h. This may be the op I want to grab
+                    prob_network.step_hidden_layer  # this is the hiddens, being passed forward for the next recurrence
+                ], {prob_network.step_input_layer: feature_var} # a dictionary for inputs. mapping
+                    # step_input_layer is an InputLayer , and
+                    # feature_var is is the input placeholder (for observations) (called "flat_input")
+                ) # question -- why pass inputs twice? The first part of the compile functino seems to pass inputs
+                # AND we have this dictionary of inputs?? SO CONFUSING
             )
 
             self.input_dim = input_dim
@@ -179,12 +188,18 @@ class CategoricalGRUPolicy(StochasticPolicy, LayersPowered, Serializable):
             ], axis=-1)
         else:
             all_input = flat_obs
-        probs, hidden_vec = self.f_step_prob(all_input, self.prev_hiddens)
-        actions = special.weighted_sample_n(probs, np.arange(self.action_space.n))
+        # actions_weights is the hiddens with a dense layer applid on top, and a softmax on to of that to get action weights
+        # hidden_vec -- hidden states, saved for next recurrence
+        action_weights, hidden_vec = self.f_step_prob(all_input, self.prev_hiddens) # all_input == observations
+        self.action_weights = tf.convert_to_tensor(action_weights)
+        # action weights:  #[batch?, n_actions] shape and an np.ndarray (type)
+        #print("action_weights.shape: ", action_weights.shape)
+        #print("type(action_weights): ", type(action_weights))
+        actions = np.argmax(action_weights, axis=1)
         prev_actions = self.prev_actions
         self.prev_actions = self.action_space.flatten_n(actions)
         self.prev_hiddens = hidden_vec
-        agent_info = dict(prob=probs)
+        agent_info = dict(prob=action_weights)
         if self.state_include_action:
             agent_info["prev_action"] = np.copy(prev_actions)
         return actions, agent_info
