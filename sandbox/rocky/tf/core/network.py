@@ -310,7 +310,7 @@ class GRUNetwork(object):
 
 
 class SimpleRNNNetwork(object):
-    def __init__(self, name, input_shape, output_dim, hidden_dim, hidden_nonlinearity=tf.nn.relu,
+    def __init__(self, name, input_shape, output_dim, hidden_dim, layer_dim=32, hidden_nonlinearity=tf.nn.relu,
                  rnn_layer_cls=L.SimpleRNNLayer,
                  output_nonlinearity=None, input_var=None, input_layer=None, layer_args=None):
         with tf.variable_scope(name):
@@ -328,7 +328,7 @@ class SimpleRNNNetwork(object):
                 layer_args = dict()
             
             ## RNN
-            l_rnn_output = rnn_layer_cls(l_in, num_units=hidden_dim, nonlinearity=hidden_nonlinearity,
+            l_rnn_output = rnn_layer_cls(l_in, num_units=hidden_dim, layer_dim=layer_dim, nonlinearity=hidden_nonlinearity,
                                   hidden_init_trainable=False, name="rnn", **layer_args)
 
             ## STEP LAYERS?

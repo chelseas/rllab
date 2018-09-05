@@ -21,7 +21,7 @@ class BatchPolopt(RLAlgorithm):
             policy,
             baseline,
             scope=None,
-            n_itr=1, #500,
+            n_itr=100, #500
             start_itr=0,
             batch_size=1, #5000,
             max_path_length=500,

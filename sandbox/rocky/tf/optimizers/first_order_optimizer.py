@@ -80,6 +80,7 @@ class FirstOrderOptimizer(Serializable):
         )
 
     def loss(self, inputs, extra_inputs=None):
+        #print("inputs: ", inputs)
         if extra_inputs is None:
             extra_inputs = tuple()
         return self._opt_fun["f_loss"](*(tuple(inputs) + extra_inputs))
