@@ -142,6 +142,7 @@ class PenaltyLbfgsOptimizer(Serializable):
                 else:
                     # Otherwise (i.e. constraint satisfied), shrink penalty
                     penalty_scale_factor = self._decrease_penalty_factor
+                    print("Decreasing penalty factor")
                     opt_params = itr_opt_params
             else:
                 if penalty_scale_factor > 1 and \

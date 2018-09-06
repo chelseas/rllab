@@ -1158,7 +1158,7 @@ class SimpleRNNLayer(Layer):
     """
 
     def __init__(self, incoming, num_units, layer_dim=32, nonlinearity=tf.nn.relu,
-                 W_o_init=XavierUniformInitializer(), W_h_init=OrthogonalInitializer(), W_out_init=XavierUniformInitializer(),
+                 W_o_init=XavierUniformInitializer(), W_h_init=XavierUniformInitializer(), W_out_init=XavierUniformInitializer(),
                  b_o_init=tf.zeros_initializer(), b_h_init=tf.zeros_initializer(), b_out_init=tf.zeros_initializer(), hidden_init=tf.zeros_initializer(), 
                  hidden_init_trainable=False, layer_normalization=False, **kwargs):
 

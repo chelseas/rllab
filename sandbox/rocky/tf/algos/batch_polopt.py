@@ -21,9 +21,9 @@ class BatchPolopt(RLAlgorithm):
             policy,
             baseline,
             scope=None,
-            n_itr=100, #500
+            n_itr=500,
             start_itr=0,
-            batch_size=1, #5000,
+            batch_size=1000, #5000,
             max_path_length=500,
             discount=0.99,
             gae_lambda=1,
@@ -99,7 +99,7 @@ class BatchPolopt(RLAlgorithm):
     def process_samples(self, itr, paths):
         return self.sampler.process_samples(itr, paths)
 
-    def train(self, sess=None):
+    def train(self, sess=None, summary_writer=None, summary=None):
         created_session = True if (sess is None) else False
         if sess is None:
             sess = tf.Session()

@@ -100,11 +100,6 @@ class VPG(BatchPolopt, Serializable):
         if is_recurrent:
             input_list.append(valid_var)
 
-        #print("surr_obj: ", surr_obj)
-        #print("logli: ", logli)
-        #print("advantage_var: ", advantage_var)
-        #print("valid_var: ", valid_var)
-        #print("inputs: ", input_list)
         self.optimizer.update_opt(loss=surr_obj, target=self.policy, inputs=input_list)
 
         f_kl = tensor_utils.compile_function(
@@ -136,9 +131,11 @@ class VPG(BatchPolopt, Serializable):
         loss_after = self.optimizer.loss(inputs)
         logger.record_tabular("LossBefore", loss_before)
         logger.record_tabular("LossAfter", loss_after)
+        tf.summary.scalar("loss", loss_after)
 
         mean_kl, max_kl = self.opt_info['f_kl'](*(list(inputs) + dist_info_list))
         logger.record_tabular('MeanKL', mean_kl)
+        tf.summary.scalar('mean_kl', mean_kl)
         logger.record_tabular('MaxKL', max_kl)
 
     @overrides
