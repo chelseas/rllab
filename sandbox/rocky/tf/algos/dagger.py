@@ -8,7 +8,7 @@ from sandbox.rocky.tf.optimizers.first_order_optimizer import FirstOrderOptimize
 from sandbox.rocky.tf.misc import tensor_utils
 from rllab.core.serializable import Serializable
 import tensorflow as tf
-from rllab.sampler.utils import rollout
+from rllab.sampler.utils import rollout, dagger_rollout
 import time
 from rllab.misc import special
 
@@ -30,11 +30,12 @@ class Dagger(Serializable):
             numtrajs=1, # num trajs to gather between each training pass
             n_itr=500,
             start_itr=0,
-            batch_size=5000,
+            batch_size=512,
             max_path_length=500,
             discount=0.99,
             plot=False,
             fixed_horizon=False,
+            pause_for_plot=False,
             **kwargs):
         Serializable.quick_init(self, locals())
         self.policy=policy
@@ -48,6 +49,7 @@ class Dagger(Serializable):
         self.max_path_length=max_path_length
         self.discount = discount
         self.plot = plot
+        self.pause_for_plot = pause_for_plot
         self.fixed_horizon = fixed_horizon
         if self.policy.state_info_keys is None:
             self.policy.state_info_keys = ["hidden_in"]
@@ -60,10 +62,12 @@ class Dagger(Serializable):
                 optimizer_args = default_args
             else:
                 optimizer_args = dict(default_args, **optimizer_args)
-            optimizer = FirstOrderOptimizer(**optimizer_args)
+            with self.decision_rule.novice_sess.as_default():
+                optimizer = FirstOrderOptimizer(**optimizer_args)
         self.optimizer = optimizer
         self.opt_info = None
-        self.init_opt()
+        with self.decision_rule.novice_sess.as_default():
+            self.init_opt()
 
     @overrides
     def init_opt(self):
@@ -145,7 +149,7 @@ class Dagger(Serializable):
             inputs += (samples_data["valids"],)
         dist_info_list = [agent_infos[k] for k in self.policy.distribution.dist_info_keys]
         loss_before = self.optimizer.loss(inputs)
-        self.optimizer.optimize(inputs)
+        self.optimizer.optimize(inputs) #self.decision_rule.novice_sess)
         loss_after = self.optimizer.loss(inputs)
         logger.record_tabular("LossBefore", loss_before)
         logger.record_tabular("LossAfter", loss_after)
@@ -170,16 +174,66 @@ class Dagger(Serializable):
     def do_rollouts(self):
         paths = []
         for i in range(self.numtrajs):
-            path = rollout(self.env, 
+            path = dagger_rollout(self.env, 
                 self.decision_rule,
                 max_path_length=self.max_path_length)
+            #print("reward: ", sum(path["rewards"]))
+            #print("time chose novice action: ", sum(path["agent_infos"]["chose_novice"].astype(int)))
             paths.append(path)
         return paths
+
+    """
+    Do some novice rollouts to test the policy
+    """
+    def novice_rollouts(self):
+        paths = []
+        with self.decision_rule.novice_sess.as_default():
+            for i in range(100):
+                path = dagger_rollout(self.env, 
+                    self.policy,
+                    max_path_length=self.max_path_length, animated=False)
+                paths.append(path)
+
+        average_reward = sum([sum(path["rewards"]) for path in paths])/len(paths)
+        logger.record_tabular("NoviceAverageReturn", average_reward)
+        return True
+
+    """
+    Do some expert rollouts for kicks
+    """
+    def expert_rollouts(self):
+        paths = []
+        with self.decision_rule.expert_sess.as_default():
+            for i in range(100):
+                path = dagger_rollout(self.env, 
+                    self.expert,
+                    max_path_length=self.max_path_length, animated=False)
+                paths.append(path)
+        average_reward = sum([sum(path["rewards"]) for path in paths])/len(paths)
+        logger.record_tabular("ExpertAverageReturn", average_reward)
+        return True
+
+
+    """
+    Filter out the best 1000 paths
+    """
+    def filter_paths(self, paths):
+        if len(paths) < 100:
+            best_paths = paths
+        else:
+            sorted_paths = sorted(paths, key=lambda k: sum(k['rewards']), reverse=True)
+            best_paths = sorted_paths[:100]
+        
+        return best_paths
 
     """
     Concat and pad data so its of the form: [batchsize==numtrajs, maxsteps, var_dim]
     """
     def process_samples(self, itr, paths, log=True):
+
+        # filter out and return the best 1000 paths
+        # paths = self.filter_paths(paths)
+
         returns = []
         for path in paths:
             path["returns"] = special.discount_cumsum(path["rewards"], self.discount)
@@ -257,23 +311,25 @@ class Dagger(Serializable):
     #         hiddens = path['agent_infos']['hiddens']
     #         expert_actions = path['agent_infos']['expert_actions']
 
-    def train(self, sess=None, summary_writer=None, summary=None, store_paths=False):
-        created_session = True if (sess is None) else False
-        if sess is None:
-            sess = tf.Session()
-            sess.__enter__()
-            
-        sess.run(tf.global_variables_initializer())
+    def train(self, summary_writer=None, summary=None, store_paths=False): # sess=None
+        #created_session = True if (sess is None) else False
+        #if sess is None:
+        #    sess = tf.Session()
+        #    sess.__enter__()   
+        #sess.run(tf.global_variables_initializer())
+        
         start_time = time.time()
         if not hasattr(self, 'all_paths'):
             self.all_paths = [] # a list of path dicts
         for itr in range(self.start_itr, self.n_itr):
+            self.itr = itr
             itr_start_time = time.time()
             with logger.prefix('itr #%d | ' % itr):
                 #import pdb; pdb.set_trace()
                 logger.log("Obtaining samples...")
                 ############################################
                 print("Collecting paths with dagger beta of: ", self.decision_rule.beta0 * self.decision_rule.beta_decay ** self.decision_rule.epoch)
+                logger.record_tabular('DAgger Beta: ', self.decision_rule.beta0 * self.decision_rule.beta_decay ** self.decision_rule.epoch)
                 paths = self.do_rollouts()
                 # decay beta by incrementing dagger epoch
                 self.decision_rule.epoch += 1
@@ -283,30 +339,42 @@ class Dagger(Serializable):
                 self.all_paths.extend(paths) 
                 print("total paths: ", len(self.all_paths))
                 samples_data = self.process_samples(itr, self.all_paths, log=False)
+                
                 ############################################
                 logger.log("Logging diagnostics...")
                 self.log_diagnostics(paths)
-                logger.log("Optimizing policy...")
-                self.optimize_policy(itr, samples_data)
-                logger.log("Saving snapshot...")
-                params = self.get_itr_snapshot(itr, samples_data)  # , **kwargs)
+                with self.decision_rule.novice_sess.as_default():
+                    logger.log("Optimizing policy...")
+                    self.optimize_policy(itr, samples_data)
+                    logger.log("Saving snapshot...")
+                    params = self.get_itr_snapshot(itr, samples_data)  # , **kwargs)
+                    logger.save_itr_params(itr, params) # this saves everything in params 
                 if store_paths:
                     logger.log("Storing paths...")
                     params['paths'] = paths
-                logger.save_itr_params(itr, params) # this saves everything in params 
                 logger.log("Saved")
                 logger.record_tabular('Time', time.time() - start_time)
                 logger.record_tabular('ItrTime', time.time() - itr_start_time)
-                logger.dump_tabular(with_prefix=False)
-                if self.plot:
-                    rollout(self.env, self.policy, animated=True, max_path_length=self.max_path_length)
-                    if self.pause_for_plot:
-                        input("Plotting evaluation run: Press Enter to "
-                              "continue...")
-                import pdb; pdb.set_trace()
+                
+                # test newly optimized policy with some novice rollouts
+                logger.log("Doing Novice rollouts...")
+                self.novice_rollouts()
 
-        if created_session:
-            sess.close()
+                logger.log("Doing Expert rollouts...")
+                self.expert_rollouts()
+
+                logger.dump_tabular(with_prefix=False)
+
+                
+                if self.plot:
+                    with self.decision_rule.novice_sess.as_default():
+                        rollout(self.env, self.policy, animated=True, max_path_length=self.max_path_length)
+                        if self.pause_for_plot:
+                            input("Plotting evaluation run: Press Enter to "
+                              "continue...")
+
+        #if created_session:
+        #    sess.close()
 
     def log_diagnostics(self, paths):
         self.env.log_diagnostics(paths)
