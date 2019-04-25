@@ -145,7 +145,7 @@ class BaseSampler(Sampler):
                 np.mean([path["returns"][0] for path in paths])
 
             undiscounted_returns = [sum(path["rewards"]) for path in paths]
-
+            print("agent_infos: ", agent_infos)
             ent = np.sum(self.algo.policy.distribution.entropy(agent_infos) * valids) / np.sum(valids)
 
             samples_data = dict(

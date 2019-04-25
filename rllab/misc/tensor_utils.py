@@ -67,6 +67,9 @@ def stack_tensor_list(tensor_list):
     #     return np.array(tensor_list)
     # return np.vstack(tensor_list)
 
+def stack_tensor_list_Wx(tensor_list):
+    return np.array(tensor_list).transpose()
+
 
 def stack_tensor_dict_list(tensor_dict_list):
     """
@@ -74,6 +77,7 @@ def stack_tensor_dict_list(tensor_dict_list):
     :param tensor_dict_list: a list of dictionaries of {tensors or dictionary of tensors}.
     :return: a dictionary of {stacked tensors or dictionary of stacked tensors}
     """
+    #import pdb; pdb.set_trace()
     keys = list(tensor_dict_list[0].keys())
     ret = dict()
     for k in keys:
@@ -82,6 +86,24 @@ def stack_tensor_dict_list(tensor_dict_list):
             v = stack_tensor_dict_list([x[k] for x in tensor_dict_list])
         else:
             v = stack_tensor_list([x[k] for x in tensor_dict_list])
+        ret[k] = v
+    return ret
+
+def stack_tensor_dict_list_Wx(tensor_dict_list):
+    """
+    Stack a list of dictionaries of {tensors or dictionary of tensors}.
+    :param tensor_dict_list: a list of dictionaries of {tensors or dictionary of tensors}.
+    :return: a dictionary of {stacked tensors or dictionary of stacked tensors}
+    """
+    #import pdb; pdb.set_trace()
+    keys = list(tensor_dict_list[0].keys())
+    ret = dict()
+    for k in keys:
+        example = tensor_dict_list[0][k]
+        if isinstance(example, dict):
+            v = stack_tensor_dict_list_Wx([x[k] for x in tensor_dict_list])
+        else:
+            v = stack_tensor_list_Wx([x[k] for x in tensor_dict_list])
         ret[k] = v
     return ret
 

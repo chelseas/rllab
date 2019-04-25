@@ -4,7 +4,8 @@ import joblib
 import tensorflow as tf
 
 from rllab.misc.console import query_yes_no
-from rllab.sampler.utils import rollout, deterministic_rollout
+from rllab.sampler.utils import rollout
+import numpy as np
 
 if __name__ == "__main__":
 
@@ -15,25 +16,24 @@ if __name__ == "__main__":
                         help='Max length of rollout')
     parser.add_argument('--speedup', type=float, default=1,
                         help='Speedup')
-    parser.add_argument('--isdeterm', type=bool, default=False)
     args = parser.parse_args()
 
-    import pdb; pdb.set_trace()
     # If the snapshot file use tensorflow, do:
     # import tensorflow as tf
     # with tf.Session():
     #     [rest of the code]
-    if args.isdeterm:
-        rollout_fn = deterministic_rollout
-    else:
-        rollout_fn = rollout 
-
     with tf.Session() as sess:
         data = joblib.load(args.file)
         policy = data['policy']
         env = data['env']
         while True:
-            path = rollout_fn(env, policy, max_path_length=args.max_path_length,
+            path = rollout(env, policy, max_path_length=args.max_path_length,
                            animated=True, speedup=args.speedup, always_return_paths=True)
+            #obs = path["observations"]
+            #print("observations 0, x,xdot: ", obs[0,0:2])
+            #print("observations 0, theta, thetadot",obs[0,2:4]*180/np.pi)
+            #print("observations end, x,xdot: ", obs[-1,0:2])
+            #print("observations end, theta, thetadot",obs[-1,2:4]*180/np.pi)
+            print("sum of rewards: ", np.sum(path["rewards"]))
             if not query_yes_no('Continue simulation?'):
                 break

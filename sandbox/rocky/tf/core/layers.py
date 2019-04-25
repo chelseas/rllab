@@ -10,7 +10,7 @@ from itertools import chain
 from inspect import getargspec
 from difflib import get_close_matches
 from warnings import warn
-
+import sys
 
 class G(object):
     pass
@@ -164,6 +164,7 @@ class Layer(object):
         param = self.add_param_plain(spec, shape, name, **kwargs)
         if name is not None and name.startswith("W") and self.weight_normalization:
             # Hacky: check if the parameter is a weight matrix. If so, apply weight normalization
+            #import pdb; pdb.set_trace()
             if len(param.get_shape()) == 2:
                 v = param
                 g = self.add_param_plain(tf.ones_initializer(), (shape[1],), name=name + "_wn/g")
@@ -171,8 +172,7 @@ class Layer(object):
             elif len(param.get_shape()) == 4:
                 v = param
                 g = self.add_param_plain(tf.ones_initializer(), (shape[3],), name=name + "_wn/g")
-                param = v * (tf.reshape(g, (1, 1, 1, -1)) / tf.sqrt(tf.reduce_sum(tf.square(v), [0, 1, 2],
-                                                                                  keep_dims=True)))
+                param = v * (tf.reshape(g, (1, 1, 1, -1)) / tf.sqrt(tf.reduce_sum(tf.square(v), [0, 1, 2],keep_dims=True)))
             else:
                 raise NotImplementedError
         return param
@@ -345,15 +345,48 @@ class ParamLayer(Layer):
             trainable=trainable
         )
 
+    # output shape is... (batch_size X ... X num_units)
     def get_output_shape_for(self, input_shape):
         return input_shape[:-1] + (self.num_units,)
 
     def get_output_for(self, input, **kwargs):
+        #import pdb; pdb.set_trace()
         ndim = input.get_shape().ndims
         reshaped_param = tf.reshape(self.param, (1,) * (ndim - 1) + (self.num_units,))
         tile_arg = tf.concat(axis=0, values=[tf.shape(input)[:ndim - 1], [1]])
         tiled = tf.tile(reshaped_param, tile_arg)
         return tiled
+
+class SimpleParamLayer(Layer):
+    def __init__(self, incoming, num_units, param=tf.zeros_initializer(),
+                 trainable=True, **kwargs):
+        super(SimpleParamLayer, self).__init__(incoming, **kwargs)
+        self.num_units = num_units
+        self.param = self.add_param(
+            param,
+            (num_units,),
+            name="param",
+            trainable=trainable
+        )
+
+    # output shape is... (num_units X batch_size)
+    def get_output_shape_for(self, input_shape):
+        in_shape = list(input_shape)
+        in_shape.reverse()
+        out_shape = inp_shape[:-1]
+        out_shape.append(self.num_units)
+        out_shape.reverse()
+        return out_shape
+
+    def get_output_for(self, input0, **kwargs):
+        #import pdb; pdb.set_trace()
+        input = tf.transpose(input0)
+        ndim = input.get_shape().ndims
+        reshaped_param = tf.reshape(self.param, (1,) * (ndim - 1) + (self.num_units,))
+        tile_arg = tf.concat(axis=0, values=[tf.shape(input)[:ndim - 1], [1]])
+        tiled = tf.tile(reshaped_param, tile_arg)
+        tiledt = tf.transpose(tiled)
+        return tiledt
 
 
 class OpLayer(MergeLayer):
@@ -392,6 +425,7 @@ class DenseLayer(Layer):
             self.b = self.add_param(b, (num_units,), name="b", regularizable=False)
         self.name=name
 
+    # output size if batchsize X num_units
     def get_output_shape_for(self, input_shape):
         return (input_shape[0], self.num_units)
 
@@ -403,6 +437,73 @@ class DenseLayer(Layer):
         activation = tf.matmul(input, self.W)
         if self.b is not None:
             activation = activation + tf.expand_dims(self.b, 0)
+            print("name=", self.name)
+        return self.nonlinearity(activation, name=self.name) # can i name this op?
+
+"""
+A dense layer class without tf.expand_dims, but still with xW multiplication
+"""
+class DenseLayer2(Layer):
+    def __init__(self, incoming, num_units, nonlinearity=None, W=XavierUniformInitializer(), b=tf.zeros_initializer(), name=None,
+                 **kwargs):
+        super(DenseLayer2, self).__init__(incoming, **kwargs)
+        self.nonlinearity = tf.identity if nonlinearity is None else nonlinearity
+
+        self.num_units = num_units
+
+        num_inputs = int(np.prod(self.input_shape[1:]))
+
+        self.W = self.add_param(W, (num_inputs, num_units), name="W")
+        if b is None:
+            self.b = None
+        else:
+            self.b = self.add_param(b, (1,num_units), name="b", regularizable=False)
+        self.name=name
+
+    # output size if batchsize X num_units
+    def get_output_shape_for(self, input_shape):
+        return (input_shape[0], self.num_units)
+
+    def get_output_for(self, input, **kwargs):
+        if input.get_shape().ndims > 2:
+            # if the input has more than two dimensions, flatten it into a
+            # batch of feature vectors.
+            input = tf.reshape(input, tf.stack([tf.shape(input)[0], -1]))
+        activation = tf.matmul(input, self.W)
+        if self.b is not None:
+            activation = activation + self.b
+        with tf.name_scope("nonlinearity"):
+            output = self.nonlinearity(activation, name=self.name)
+        return output
+
+
+# compared to DenseLayer, the multiplication is Wx instead of xW
+# works only with 2D data now (?)
+class SimpleDenseLayer(Layer):
+    def __init__(self, incoming, num_units, nonlinearity=None, W=XavierUniformInitializer(), b=tf.zeros_initializer(), name=None,
+                 **kwargs):
+        super(SimpleDenseLayer, self).__init__(incoming, **kwargs)
+        self.nonlinearity = tf.identity if nonlinearity is None else nonlinearity
+
+        self.num_units = num_units
+
+        incoming_units = int(np.prod(self.input_shape[:-1]))
+
+        self.W = self.add_param(W, (num_units, incoming_units), name="W")
+        if b is None:
+            self.b = None
+        else:
+            self.b = self.add_param(b, (num_units,1), name="b", regularizable=False)
+        self.name=name
+
+    def get_output_shape_for(self, input_shape):
+        return (self.num_units, input_shape[0])
+
+    def get_output_for(self, input, **kwargs):
+        assert input.get_shape().ndims == 2
+        activation = tf.matmul(self.W, input)
+        if self.b is not None:
+            activation = activation + self.b
             print("name=", self.name)
         return self.nonlinearity(activation, name=self.name) # can i name this op?
 
@@ -468,8 +569,8 @@ class BaseConvLayer(Layer):
         elif self.pad == 'VALID':
             pad = (0,) * self.n
         else:
-            import ipdb;
-            ipdb.set_trace()
+            #import ipdb;
+            #ipdb.set_trace()
             raise NotImplementedError
 
         # pad = self.pad if isinstance(self.pad, tuple) else (self.pad,) * self.n
@@ -1160,7 +1261,7 @@ class SimpleRNNLayer(Layer):
     def __init__(self, incoming, num_units, layer_dim=32, nonlinearity=tf.nn.relu,
                  W_o_init=XavierUniformInitializer(), W_h_init=XavierUniformInitializer(), W_out_init=XavierUniformInitializer(),
                  b_o_init=tf.zeros_initializer(), b_h_init=tf.zeros_initializer(), b_out_init=tf.zeros_initializer(), hidden_init=tf.zeros_initializer(), 
-                 hidden_init_trainable=False, layer_normalization=False, **kwargs):
+                 hidden_init_trainable=True, layer_normalization=False, **kwargs):
 
         super(SimpleRNNLayer, self).__init__(incoming, **kwargs)
 
@@ -1168,17 +1269,32 @@ class SimpleRNNLayer(Layer):
 
         input_dim = np.prod(input_shape)
 
+        half_layer_dim = int(layer_dim/2.)
+
         self.layer_normalization = layer_normalization
 
         # Weights for the initial hidden state
         self.h0 = self.add_param(hidden_init, (num_units,), name="h0", trainable=hidden_init_trainable,
                                  regularizable=False)
+
         # Weights and bias for the observations
-        self.W_o = self.add_param(W_o_init, (input_dim, layer_dim), name="W_obs")
-        self.b_o = self.add_param(b_o_init, (layer_dim,), name="b_obs", regularizable=False)
+        self.W_o = self.add_param(W_o_init, (input_dim, half_layer_dim), name="W_obs")
+        self.b_o = self.add_param(b_o_init, (half_layer_dim,), name="b_obs", regularizable=False)
         # weights and bias for the hidden state
-        self.W_h = self.add_param(W_h_init, (num_units, layer_dim), name="W_hid")
-        self.b_h = self.add_param(b_h_init, (layer_dim,), name="b_hid", regularizable=False)
+        self.W_h = self.add_param(W_h_init, (num_units, half_layer_dim), name="W_hid")
+        self.b_h = self.add_param(b_h_init, (half_layer_dim,), name="b_hid", regularizable=False)
+
+        # weights and bias for the first hidden layer
+        self.W_hid1 = self.add_param(XavierUniformInitializer(), (layer_dim, layer_dim), name="W_hid1")
+        self.b_hid1 = self.add_param(tf.zeros_initializer(), (layer_dim,), name="b_hid1", regularizable=False)
+
+        # weights and bias for the second hidden layer
+        self.W_hid2 = self.add_param(XavierUniformInitializer(), (layer_dim, layer_dim), name="W_hid2")
+        self.b_hid2 = self.add_param(tf.zeros_initializer(), (layer_dim,), name="b_hid2", regularizable=False)
+
+        # weights and bias for the third hidden layer
+        self.W_hid3 = self.add_param(XavierUniformInitializer(), (layer_dim, layer_dim), name="W_hid3")
+        self.b_hid3 = self.add_param(tf.zeros_initializer(), (layer_dim,), name="b_hid3", regularizable=False)
 
         # weights and bias for the output
         self.W_out = self.add_param(W_out_init, (layer_dim, num_units), name="W_out")
@@ -1194,22 +1310,32 @@ class SimpleRNNLayer(Layer):
         self.step(h_dummy, x_dummy)
 
     def step(self, hprev, obs):
-        if self.layer_normalization:
-            ln = apply_ln(self)
-            # bias is included in the normalization
-            W_x_o = ln(tf.matmul(obs, self.W_o, name="first_matmul_normed"), "W_x_obs")
-            W_x_h = ln(tf.matmul(hprev, self.W_h), "W_x_h")
-            x_p_h = self.nonlinearity(W_x_o + W_x_h)
-            h = ln(tf.matmul(x_p_h, self.W_out, name="cell_output_normed?"), "x_p_h")
-            hp = tf.abs(h, name="cell_output_normed")
-            return hp
-        else:
-            Wxopb = tf.matmul(obs, self.W_o, name="first_matmul") + self.b_o
-            Wxhpb = tf.matmul(hprev, self.W_h) + self.b_h
-            x_p_h = self.nonlinearity(Wxopb + Wxhpb)
-            h = tf.add(tf.matmul(x_p_h, self.W_out), self.b_out)
-            hp = tf.abs(h, name="cell_output")
-            return hp
+        # I'm like 75% sure that:
+        # obs intended to have shape [nbatch, obs_dim] bc each tstep in trajlength is passed in one at a time
+        # hprev intended to have shape [nbatch, hdim]
+        #import pdb; pdb.set_trace()
+        obs1 = tf.nn.bias_add(tf.matmul(obs, self.W_o, name="first_matmul"), self.b_o)
+        hid1 = tf.nn.bias_add(tf.matmul(hprev, self.W_h), self.b_h)
+        concat1 = tf.concat([obs1, hid1], axis=-1)
+        active1 = self.nonlinearity(concat1)
+        # first hidden layer
+        interm1 = tf.nn.bias_add(tf.matmul(active1, self.W_hid1), self.b_hid1)
+        interm1a = tf.nn.relu(interm1)
+        # second hidden layer
+        interm2 = tf.nn.bias_add(tf.matmul(interm1a, self.W_hid2), self.b_hid2)
+        interm2a = tf.nn.relu(interm2)
+        # third hidden layer
+        interm3 = tf.nn.bias_add(tf.matmul(interm1a, self.W_hid3), self.b_hid3)
+        interm3a = tf.nn.relu(interm3)
+        #h1 = -tf.maximum(-h,-10.) # a min, implemented with a max. Min(x,10)
+        #hp = tf.maximum(h,0, name="cell_output") # Max(x,0)
+        # together: an approximation to a linearized sigmoid
+        
+        out = tf.nn.bias_add(tf.matmul( interm3a , self.W_out), self.b_out)
+        out_activated = tf.nn.relu(out, name="cell_output")
+        
+        #print("final operation is: ", "relu")
+        return out_activated
 
     def get_step_layer(self, l_in, l_prev_hidden, name=None):
         return SimpleRNNStepLayer(incomings=[l_in, l_prev_hidden], recurrent_layer=self, name=name)
@@ -1220,7 +1346,7 @@ class SimpleRNNLayer(Layer):
 
     def get_output_for(self, input, **kwargs):
         input_shape = tf.shape(input)
-        n_batches = input_shape[0]
+        n_batches = qj(input_shape[0], 'number of trajs (should increase each iter)', t=True)
         n_steps = input_shape[1]
         input = tf.reshape(input, tf.stack([n_batches, n_steps, -1]))
         if 'recurrent_state' in kwargs and self in kwargs['recurrent_state']:
@@ -1231,13 +1357,15 @@ class SimpleRNNLayer(Layer):
                 (n_batches, 1)
             )
         # flatten extra dimensions
+        # was: [nbatches, nsteps, obs_dim], but now it is: [nsteps, nbatches, obs_dim]
         shuffled_input = tf.transpose(input, (1, 0, 2))
+        # calling tf.scan passes nsteps tensors of shape [nbatches, obs_dim]
         hs = tf.scan(
             self.step,
             elems=shuffled_input,
             initializer=h0s
         )
-        shuffled_hs = tf.transpose(hs, (1, 0, 2))
+        shuffled_hs = tf.transpose(hs, (1, 0, 2)) # back to [nbatch, nsteps, h_dim]
         if 'recurrent_state_output' in kwargs:
             kwargs['recurrent_state_output'][self] = shuffled_hs
         return shuffled_hs
@@ -1254,17 +1382,12 @@ class SimpleRNNStepLayer(MergeLayer):
         n_batch = input_shapes[0][0]
         return n_batch, self._rnn_layer.num_units
 
+    # this function takes observations AND hiddens of shape [num_trajs==batch_size, obs_dim] or [batch_size, hid_dim]
     def get_output_for(self, inputs, **kwargs):
         x, hprev = inputs
         n_batch = tf.shape(x)[0]
-        #print("n_batch: ", n_batch)
-        #print("tf.shape(x): ", tf.shape(x))
-        x = tf.reshape(x, tf.stack([n_batch, -1])) # ??
-        #print("x after reshape: ", x)
-        #print("self.input_shapes: ", self.input_shapes)
-        #print("self.input_shapes[0][1]: ", self.input_shapes[0][1])
+        x = tf.reshape(x, tf.stack([n_batch, -1])) # reshape to shape [nbatch, -1]
         x.set_shape((None, self.input_shapes[0][1]))
-        #print("x after set shape: ", x)
         return self._rnn_layer.step(hprev, x)
 
 class PseudoLSTMLayer(Layer):
@@ -1874,7 +1997,7 @@ def get_output(layer_or_layers, inputs=None, **kwargs):
     treat_as_input = list(inputs.keys()) if isinstance(inputs, dict) else []
     all_layers = get_all_layers(layer_or_layers, treat_as_input)
     # initialize layer-to-expression mapping from all input layers
-    all_outputs = dict((layer, layer.input_var)
+    all_outputs = dict((layer, layer.input_var) 
                        for layer in all_layers
                        if isinstance(layer, InputLayer) and
                        layer not in treat_as_input)

@@ -23,7 +23,7 @@ class FirstOrderOptimizer(Serializable):
             self,
             tf_optimizer_cls=None,
             tf_optimizer_args=None,
-            # learning_rate=1e-3,
+            learning_rate=1e-3,
             max_epochs=1000,
             tolerance=1e-6,
             batch_size=32,
@@ -47,7 +47,7 @@ class FirstOrderOptimizer(Serializable):
         if tf_optimizer_cls is None:
             tf_optimizer_cls = tf.train.AdamOptimizer
         if tf_optimizer_args is None:
-            tf_optimizer_args = dict(learning_rate=1e-3)
+            tf_optimizer_args = dict(learning_rate=learning_rate)
         self._tf_optimizer = tf_optimizer_cls(**tf_optimizer_args)
         self._max_epochs = max_epochs
         self._tolerance = tolerance
@@ -55,6 +55,10 @@ class FirstOrderOptimizer(Serializable):
         self._verbose = verbose
         self._input_vars = None
         self._train_op = None
+        # print("tf_optimizer_cls: ", tf_optimizer_cls)
+        # print("tf_optimizer_args: ", tf_optimizer_args)
+        # print("max_epochs: ", max_epochs)
+        # print("batch_size: ", batch_size)
 
     def update_opt(self, loss, target, inputs, extra_inputs=None, **kwargs):
         """
@@ -65,6 +69,8 @@ class FirstOrderOptimizer(Serializable):
         :param inputs: A list of symbolic variables as inputs
         :return: No return value.
         """
+        sess = tf.get_default_session()
+        print("sess: ", sess) # correctly gets novice session
 
         self._target = target
 
@@ -138,3 +144,4 @@ class FirstOrderOptimizer(Serializable):
             if abs(last_loss - new_loss) < self._tolerance:
                 break
             last_loss = new_loss
+

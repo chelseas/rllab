@@ -109,6 +109,7 @@ class ParallelVecEnvExecutor(object):
         results = [x for x in results if x is not None]
         ids, obs, rewards, dones, env_infos = list(zip(*results))
         ids = np.concatenate(ids)
+        #import pdb; pdb.set_trace() # would need to change unflatten if using Wx multiplication
         obs = self.observation_space.unflatten_n(np.concatenate(obs))
         rewards = np.concatenate(rewards)
         dones = np.concatenate(dones)

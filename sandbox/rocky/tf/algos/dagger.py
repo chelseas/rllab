@@ -11,12 +11,15 @@ import tensorflow as tf
 from rllab.sampler.utils import rollout, dagger_rollout
 import time
 from rllab.misc import special
+from sandbox.rocky.tf.spaces.discrete import Discrete
+from sandbox.rocky.tf.spaces.box import Box
 
+import os
 import numpy as np
 
 class Dagger(Serializable):
     """
-    DAgger? or BC?.
+    DAgger.
     """
 
     def __init__(
@@ -36,6 +39,7 @@ class Dagger(Serializable):
             plot=False,
             fixed_horizon=False,
             pause_for_plot=False,
+            log_file="/tmp/12345",
             **kwargs):
         Serializable.quick_init(self, locals())
         self.policy=policy
@@ -51,6 +55,7 @@ class Dagger(Serializable):
         self.plot = plot
         self.pause_for_plot = pause_for_plot
         self.fixed_horizon = fixed_horizon
+        self.log_file = log_file
         if self.policy.state_info_keys is None:
             self.policy.state_info_keys = ["hidden_in"]
         if optimizer is None:
@@ -82,7 +87,13 @@ class Dagger(Serializable):
             extra_dims=1 + is_recurrent,
         )
 
-        labels = tf.placeholder(dtype=tf.int32, shape=[None,None], name="expert_actions")
+        # if type(self.env.action_space) == Discrete:
+        #     labels = tf.placeholder(dtype=tf.int32, shape=[None,None], name="expert_actions")
+        # elif type(self.env.action_space) == Box:
+        labels = self.env.action_space.new_tensor_variable(
+            "expert_actions",
+            extra_dims=1 + is_recurrent)
+
         _ = qj(labels, 'labels', t=True)
 
         dist = self.policy.distribution
@@ -105,25 +116,40 @@ class Dagger(Serializable):
         else:
             valid_var = None
 
-        # get the outputs of the network (truly: a dictionary containing action probabilities)
+        # get the outputs of the network (truly: for discrete, a dictionary containing action probabilities)
         dist_info_vars = self.policy.dist_info_sym(obs_var, state_info_vars)
-        probs = dist_info_vars['prob']
 
         kl = dist.kl_sym(old_dist_info_vars, dist_info_vars)
+
+        if type(self.env.action_space) == Discrete:
+            probs = dist_info_vars['prob']
+            losses = tf.nn.sparse_softmax_cross_entropy_with_logits(
+                logits=probs,
+                labels=labels)
+        elif type(self.env.action_space) == Box:
+            # figure out why the optimization only works if I am comparing means and labels...
+            # For DAgger, it makes sense that I want to compare actions that the novice would have taken, rather than actions that the expert took, and to therefore use means
+            # the error was "no gradient info" maybe because on the firrst iter, all actions coome from expert and there's no gradient info to calculate....
+            means = dist_info_vars['mean']
+            losses = tf.nn.l2_loss(means - labels)
 
         # The gradient of the surrogate objective is the policy gradient
         # shape of valid_var: [numtrajs, maxPathLength]
         if is_recurrent:
-            losses = tf.nn.sparse_softmax_cross_entropy_with_logits(
-                logits=probs,
-                labels=labels)
             surr_obj = tf.reduce_sum(losses * valid_var) / tf.reduce_sum(valid_var)
             mean_kl = tf.reduce_sum(kl * valid_var) / tf.reduce_sum(valid_var)
             max_kl = tf.reduce_max(kl * valid_var)
+        else:
+            surr_obj = - tf.reduce_mean(losses)
+            mean_kl = tf.reduce_mean(kl)
+            max_kl = tf.reduce_max(kl)
 
-        input_list = [obs_var, labels] + state_info_vars_list
+        
         if is_recurrent:
+            input_list = [obs_var, labels] + state_info_vars_list
             input_list.append(valid_var)
+        else: # feedforward
+            input_list = [obs_var, action_var, labels] + state_info_vars_list
 
         self.optimizer.update_opt(loss=surr_obj, target=self.policy, inputs=input_list)
 
@@ -139,8 +165,12 @@ class Dagger(Serializable):
     def optimize_policy(self, itr, samples_data):
         logger.log("optimizing policy")
         obs = samples_data["observations"]
+        acts = samples_data["actions"]
         labels = samples_data["agent_infos"]["expert_action"] 
-        inputs = [obs, labels]
+        if self.policy.recurrent:
+            inputs = [obs, labels]
+        else: # feedforward
+            inputs = [obs, acts, labels]
         agent_infos = samples_data["agent_infos"]
         state_info_list = [agent_infos[k] for k in self.policy.state_info_keys]
         print("state_info_list: ", state_info_list)
@@ -148,6 +178,7 @@ class Dagger(Serializable):
         if self.policy.recurrent:
             inputs += (samples_data["valids"],)
         dist_info_list = [agent_infos[k] for k in self.policy.distribution.dist_info_keys]
+        #import pdb; pdb.set_trace()
         loss_before = self.optimizer.loss(inputs)
         self.optimizer.optimize(inputs) #self.decision_rule.novice_sess)
         loss_after = self.optimizer.loss(inputs)
@@ -176,7 +207,7 @@ class Dagger(Serializable):
         for i in range(self.numtrajs):
             path = dagger_rollout(self.env, 
                 self.decision_rule,
-                max_path_length=self.max_path_length)
+                max_path_length=self.max_path_length, animated=False)
             #print("reward: ", sum(path["rewards"]))
             #print("time chose novice action: ", sum(path["agent_infos"]["chose_novice"].astype(int)))
             paths.append(path)
@@ -210,9 +241,10 @@ class Dagger(Serializable):
                     max_path_length=self.max_path_length, animated=False)
                 paths.append(path)
         average_reward = sum([sum(path["rewards"]) for path in paths])/len(paths)
-        logger.record_tabular("ExpertAverageReturn", average_reward)
+        file = open(os.path.join(self.log_file, "expert_performance.txt"), 'w')
+        file.write("ExpertAverageReturn \n"+ str(average_reward)+"\n")
+        file.close()
         return True
-
 
     """
     Filter out the best 1000 paths
@@ -233,57 +265,83 @@ class Dagger(Serializable):
 
         # filter out and return the best 1000 paths
         # paths = self.filter_paths(paths)
-
         returns = []
         for path in paths:
             path["returns"] = special.discount_cumsum(path["rewards"], self.discount)
             returns.append(path["returns"])
 
-        max_path_length = max([len(path["observations"]) for path in paths])
-        # make all paths the same length (pad extra advantages with 0)
-        obs = [path["observations"] for path in paths]
-        obs = tensor_utils.pad_tensor_n(obs, max_path_length)
+        if not self.policy.recurrent:
+            observations = tensor_utils.concat_tensor_list([path["observations"] for path in paths])
+            actions = tensor_utils.concat_tensor_list([path["actions"] for path in paths])
+            rewards = tensor_utils.concat_tensor_list([path["rewards"] for path in paths])
+            returns = tensor_utils.concat_tensor_list([path["returns"] for path in paths])
+            env_infos = tensor_utils.concat_tensor_dict_list([path["env_infos"] for path in paths])
+            agent_infos = tensor_utils.concat_tensor_dict_list([path["agent_infos"] for path in paths])
 
-        actions = [path["actions"] for path in paths]
-        actions = tensor_utils.pad_tensor_n(actions, max_path_length)
-
-        rewards = [path["rewards"] for path in paths]
-        rewards = tensor_utils.pad_tensor_n(rewards, max_path_length)
-
-        returns = [path["returns"] for path in paths]
-        returns = tensor_utils.pad_tensor_n(returns, max_path_length)
-
-        agent_infos = [path["agent_infos"] for path in paths]
-        agent_infos = tensor_utils.stack_tensor_dict_list(
-                [tensor_utils.pad_tensor_dict(p, max_path_length) for p in agent_infos]
-            )
-
-        env_infos = [path["env_infos"] for path in paths]
-        env_infos = tensor_utils.stack_tensor_dict_list(
-                [tensor_utils.pad_tensor_dict(p, max_path_length) for p in env_infos]
-            )
-
-        valids = [np.ones_like(path["returns"]) for path in paths]
-        valids = tensor_utils.pad_tensor_n(valids, max_path_length)
-
-        average_discounted_return = \
+            average_discounted_return = \
                 np.mean([path["returns"][0] for path in paths])
 
-        undiscounted_returns = [sum(path["rewards"]) for path in paths]
+            undiscounted_returns = [sum(path["rewards"]) for path in paths]
 
-        ent = np.sum(self.policy.distribution.entropy(agent_infos) * valids) / np.sum(valids)
+            ent = np.mean(self.policy.distribution.entropy(agent_infos))
 
-        samples_data = dict(
-                observations=obs,
+            samples_data = dict(
+                observations=observations,
                 actions=actions,
-                advantages=[None],
                 rewards=rewards,
                 returns=returns,
-                valids=valids,
-                agent_infos=agent_infos,
+                advantages=[None],
                 env_infos=env_infos,
+                agent_infos=agent_infos,
                 paths=paths,
             )
+        else:   
+
+            max_path_length = max([len(path["observations"]) for path in paths])
+            # make all paths the same length (pad extra advantages with 0)
+            obs = [path["observations"] for path in paths]
+            obs = tensor_utils.pad_tensor_n(obs, max_path_length)
+
+            actions = [path["actions"] for path in paths]
+            actions = tensor_utils.pad_tensor_n(actions, max_path_length)
+
+            rewards = [path["rewards"] for path in paths]
+            rewards = tensor_utils.pad_tensor_n(rewards, max_path_length)
+
+            returns = [path["returns"] for path in paths]
+            returns = tensor_utils.pad_tensor_n(returns, max_path_length)
+
+            agent_infos = [path["agent_infos"] for path in paths]
+            agent_infos = tensor_utils.stack_tensor_dict_list(
+                    [tensor_utils.pad_tensor_dict(p, max_path_length) for p in agent_infos]
+                )
+
+            env_infos = [path["env_infos"] for path in paths]
+            env_infos = tensor_utils.stack_tensor_dict_list(
+                    [tensor_utils.pad_tensor_dict(p, max_path_length) for p in env_infos]
+                )
+
+            valids = [np.ones_like(path["returns"]) for path in paths]
+            valids = tensor_utils.pad_tensor_n(valids, max_path_length)
+
+            average_discounted_return = \
+                    np.mean([path["returns"][0] for path in paths])
+
+            undiscounted_returns = [sum(path["rewards"]) for path in paths]
+
+            ent = np.sum(self.policy.distribution.entropy(agent_infos) * valids) / np.sum(valids)
+
+            samples_data = dict(
+                    observations=obs,
+                    actions=actions,
+                    advantages=[None],
+                    rewards=rewards,
+                    returns=returns,
+                    valids=valids,
+                    agent_infos=agent_infos,
+                    env_infos=env_infos,
+                    paths=paths,
+                )
 
         # log data
         if log==True:
@@ -321,6 +379,8 @@ class Dagger(Serializable):
         start_time = time.time()
         if not hasattr(self, 'all_paths'):
             self.all_paths = [] # a list of path dicts
+        logger.log("Doing Expert rollouts...")
+        self.expert_rollouts()
         for itr in range(self.start_itr, self.n_itr):
             self.itr = itr
             itr_start_time = time.time()
@@ -360,11 +420,7 @@ class Dagger(Serializable):
                 logger.log("Doing Novice rollouts...")
                 self.novice_rollouts()
 
-                logger.log("Doing Expert rollouts...")
-                self.expert_rollouts()
-
                 logger.dump_tabular(with_prefix=False)
-
                 
                 if self.plot:
                     with self.decision_rule.novice_sess.as_default():

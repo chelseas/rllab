@@ -23,7 +23,7 @@ class NPO(BatchPolopt):
             **kwargs):
         if optimizer is None:
             if optimizer_args is None:
-                optimizer_args = dict()
+                optimizer_args = {"name": "optimizer"}
             optimizer = PenaltyLbfgsOptimizer(**optimizer_args)
         self.optimizer = optimizer
         self.step_size = step_size

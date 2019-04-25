@@ -76,6 +76,7 @@ class NormalizedEnv(ProxyEnv, Serializable):
 
     @overrides
     def step(self, action):
+        print("normalized_env.py: raw action magnitude: ", action)
         if isinstance(self._wrapped_env.action_space, Box):
             # rescale the action
             lb, ub = self._wrapped_env.action_space.bounds

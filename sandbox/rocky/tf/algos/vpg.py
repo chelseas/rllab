@@ -46,6 +46,8 @@ class VPG(BatchPolopt, Serializable):
             'obs',
             extra_dims=1 + is_recurrent,
         )
+        # shape of obs var is [numTrajs, maxpathlength, obs_dim]
+
         action_var = self.env.action_space.new_tensor_variable(
             'action',
             extra_dims=1 + is_recurrent,
@@ -74,19 +76,16 @@ class VPG(BatchPolopt, Serializable):
         else:
             valid_var = None
 
-        #obs_var = tf.print(obs_var, [obs_var, state_info_vars], message="obs_var, state_info_vars ")
-        #print("obs_var: ",obs_var)
         #print("state_info_vars: ", state_info_vars) # < empty bc state should not include action
-        # debug point
         dist_info_vars = self.policy.dist_info_sym(obs_var, state_info_vars)
         logli = dist.log_likelihood_sym(action_var, dist_info_vars)
-        #old_dist_info_vars['prob'] = tf.print(old_dist_info_vars['prob'], [old_dist_info_vars['prob']], message="old_dist_info_vars['prob']: ")
-        #dist_info_vars['prob'] = tf.print(dist_info_vars['prob'], [dist_info_vars['prob']], message="dist_info_vars['prob']: ")
+        
         kl = dist.kl_sym(old_dist_info_vars, dist_info_vars)
-        #kl = tf.print(kl, [kl], message="kl: ")
 
         # formulate as a minimization problem
         # The gradient of the surrogate objective is the policy gradient
+        # shape of valid_var: [numtrajs, maxPathLength]
+        # shape of logli: [numtrajs, maxPathLength]
         if is_recurrent:
             surr_obj = - tf.reduce_sum(logli * advantage_var * valid_var) / tf.reduce_sum(valid_var)
             mean_kl = tf.reduce_sum(kl * valid_var) / tf.reduce_sum(valid_var)
@@ -120,7 +119,9 @@ class VPG(BatchPolopt, Serializable):
         #import pdb; pdb.set_trace()
         agent_infos = samples_data["agent_infos"]
         state_info_list = [agent_infos[k] for k in self.policy.state_info_keys]
-        #print("state_info_list: ", state_info_list)
+        # normally, both of these are empty...
+        print("state info_keys:", self.policy.state_info_keys)
+        print("state_info_list: ", state_info_list)
         inputs += tuple(state_info_list)
         if self.policy.recurrent:
             inputs += (samples_data["valids"],)

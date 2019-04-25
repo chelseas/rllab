@@ -17,12 +17,12 @@ class PerlmutterHvp(object):
         self.opt_fun = None
         self._num_slices = num_slices
 
-    def update_opt(self, f, target, inputs, reg_coeff):
+    def update_opt(self, loss, target, inputs, reg_coeff, **kwargs):
         self.target = target
         self.reg_coeff = reg_coeff
         params = target.get_params(trainable=True)
 
-        constraint_grads = tf.gradients(f, xs=params)
+        constraint_grads = tf.gradients(loss, xs=params)
         for idx, (grad, param) in enumerate(zip(constraint_grads, params)):
             if grad is None:
                 constraint_grads[idx] = tf.zeros_like(param)

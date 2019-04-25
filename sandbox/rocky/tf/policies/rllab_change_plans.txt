@@ -1,0 +1,10 @@
+rllab
+
+3 layers of abstraction:
+
+- actual GRU layer
+	- will need to change to use my simplified cell
+- GRU network
+	- will need to change to not have an output layer
+- categorical GRU policy
+	- will just need to change the 'gru layer cls' that is passed to the GRU network

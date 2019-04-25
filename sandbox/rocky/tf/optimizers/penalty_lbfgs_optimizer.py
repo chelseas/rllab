@@ -65,6 +65,10 @@ class PenaltyLbfgsOptimizer(Serializable):
             for idx, (grad, param) in enumerate(zip(grads, params)):
                 if grad is None:
                     grads[idx] = tf.zeros_like(param)
+                # else: gradient clipping
+                #else:
+                #    grads[idx] = tf.clip_by_average_norm(grad, 100)
+            # print grads??
             flat_grad = tensor_utils.flatten_tensor_variables(grads)
             return [
                 tf.cast(penalized_loss, tf.float64),
@@ -118,7 +122,7 @@ class PenaltyLbfgsOptimizer(Serializable):
             itr_opt_params, _, _ = scipy.optimize.fmin_l_bfgs_b(
                 func=gen_f_opt(try_penalty), x0=cur_params,
                 maxiter=self._max_opt_itr
-            )
+            ) # iprint=10
 
             _, try_loss, try_constraint_val = f_penalized_loss(*(inputs + (try_penalty,)))
 

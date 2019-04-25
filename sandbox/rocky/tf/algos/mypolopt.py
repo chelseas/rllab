@@ -9,9 +9,9 @@ from rllab.sampler.utils import rollout
 import os
 
 
-class BatchPolopt(RLAlgorithm):
+class MyPolopt(RLAlgorithm):
     """
-    Base class for batch sampling-based policy optimization methods.
+    My base class for batch sampling-based policy optimization methods.
     This includes various policy gradient methods like vpg, npg, ppo, trpo, etc.
     """
 
@@ -19,7 +19,7 @@ class BatchPolopt(RLAlgorithm):
             self,
             env,
             policy,
-            baseline,
+            expert,
             scope=None,
             n_itr=500,
             start_itr=0,
@@ -62,7 +62,7 @@ class BatchPolopt(RLAlgorithm):
         """
         self.env = env
         self.policy = policy
-        self.baseline = baseline
+        self.expert = expert
         self.scope = scope
         self.n_itr = n_itr
         self.start_itr = start_itr
@@ -112,13 +112,9 @@ class BatchPolopt(RLAlgorithm):
             itr_start_time = time.time()
             with logger.prefix('itr #%d | ' % itr):
                 logger.log("Obtaining samples...")
-                paths = self.obtain_samples(itr) # paths is a list here
-                #import pdb; pdb.set_trace()
-                # each path is a dictionary
-                print("len(paths): ", len(paths))
+                paths = self.obtain_samples(itr)
                 logger.log("Processing samples...")
                 samples_data = self.process_samples(itr, paths)
-                #import pdb; pdb.set_trace()
                 logger.log("Logging diagnostics...")
                 self.log_diagnostics(paths)
                 logger.log("Optimizing policy...")

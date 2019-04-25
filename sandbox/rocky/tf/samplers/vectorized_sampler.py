@@ -40,6 +40,7 @@ class VectorizedSampler(BaseSampler):
         logger.log("Obtaining samples for iteration %d..." % itr)
         paths = []
         n_samples = 0
+        #import pdb; pdb.set_trace()
         obses = self.vec_env.reset()
         dones = np.asarray([True] * self.vec_env.num_envs)
         running_paths = [None] * self.vec_env.num_envs
@@ -53,11 +54,16 @@ class VectorizedSampler(BaseSampler):
         import time
 
         while n_samples < self.algo.batch_size:
-
             t = time.time()
             policy.reset(dones)
+            #import pdb; pdb.set_trace()
             actions, agent_infos = policy.get_actions(obses)
-
+            if policy.batch_dim == 0:
+                pass
+            elif policy.batch_dim == -1:
+                actions = actions.transpose()
+            else:
+                raise NotImplementedError 
             policy_time += time.time() - t
             t = time.time()
             next_obses, rewards, dones, env_infos = self.vec_env.step(actions)
@@ -71,9 +77,8 @@ class VectorizedSampler(BaseSampler):
                 env_infos = [dict() for _ in range(self.vec_env.num_envs)]
             if agent_infos is None:
                 agent_infos = [dict() for _ in range(self.vec_env.num_envs)]
-            for idx, observation, action, reward, env_info, agent_info, done in zip(itertools.count(), obses, actions,
-                                                                                    rewards, env_infos, agent_infos,
-                                                                                    dones):
+            #import pdb; pdb.set_trace()
+            for idx, observation, action, reward, env_info, agent_info, done in zip(itertools.count(), obses, actions, rewards, env_infos, agent_infos, dones):
                 if running_paths[idx] is None:
                     running_paths[idx] = dict(
                         observations=[],
@@ -88,13 +93,25 @@ class VectorizedSampler(BaseSampler):
                 running_paths[idx]["env_infos"].append(env_info)
                 running_paths[idx]["agent_infos"].append(agent_info)
                 if done:
-                    paths.append(dict(
-                        observations=self.env_spec.observation_space.flatten_n(running_paths[idx]["observations"]),
-                        actions=self.env_spec.action_space.flatten_n(running_paths[idx]["actions"]),
-                        rewards=tensor_utils.stack_tensor_list(running_paths[idx]["rewards"]),
-                        env_infos=tensor_utils.stack_tensor_dict_list(running_paths[idx]["env_infos"]),
-                        agent_infos=tensor_utils.stack_tensor_dict_list(running_paths[idx]["agent_infos"]),
-                    ))
+                    #import pdb; pdb.set_trace()
+                    if policy.batch_dim == 0:
+                        paths.append(dict(
+                            observations=self.env_spec.observation_space.flatten_n(running_paths[idx]["observations"]),
+                            actions=self.env_spec.action_space.flatten_n(running_paths[idx]["actions"]),
+                            rewards=tensor_utils.stack_tensor_list(running_paths[idx]["rewards"]),
+                            env_infos=tensor_utils.stack_tensor_dict_list(running_paths[idx]["env_infos"]),
+                            agent_infos=tensor_utils.stack_tensor_dict_list(running_paths[idx]["agent_infos"]),
+                        ))
+                    elif policy.batch_dim == -1:
+                        paths.append(dict(
+                            observations=self.env_spec.observation_space.flatten_n_Wx(running_paths[idx]["observations"]),
+                            actions=self.env_spec.action_space.flatten_n_Wx(running_paths[idx]["actions"]),
+                            rewards=tensor_utils.stack_tensor_list_Wx(running_paths[idx]["rewards"]),
+                            env_infos=tensor_utils.stack_tensor_dict_list_Wx(running_paths[idx]["env_infos"]),
+                            agent_infos=tensor_utils.stack_tensor_dict_list_Wx(running_paths[idx]["agent_infos"]),
+                        ))
+                    else:
+                        raise NotImplementedError
                     n_samples += len(running_paths[idx]["rewards"])
                     running_paths[idx] = None
             process_time += time.time() - t

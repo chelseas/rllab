@@ -160,7 +160,9 @@ class CategoricalGRUPolicy(StochasticPolicy, LayersPowered, Serializable):
         if self.prev_actions is None or len(dones) != len(self.prev_actions):
             self.prev_actions = np.zeros((len(dones), self.action_space.flat_dim))
             self.prev_hiddens = np.zeros((len(dones), self.hidden_dim))
-
+        #print("dones in reset: ", dones)
+        #print("self.prev_actions: ", self.prev_actions)
+        #print("self.prev_hiddens: ", self.prev_hiddens)
         self.prev_actions[dones] = 0.
         self.prev_hiddens[dones] = self.prob_network.hid_init_param.eval()  # get_value()
 
@@ -191,7 +193,7 @@ class CategoricalGRUPolicy(StochasticPolicy, LayersPowered, Serializable):
         # actions_weights is the hiddens with a dense layer applid on top, and a softmax on to of that to get action weights
         # hidden_vec -- hidden states, saved for next recurrence
         action_weights, hidden_vec = self.f_step_prob(all_input, self.prev_hiddens) # all_input == observations
-        self.action_weights = tf.convert_to_tensor(action_weights)
+        #self.action_weights = tf.convert_to_tensor(action_weights)
         # action weights:  #[batch?, n_actions] shape and an np.ndarray (type)
         #print("action_weights.shape: ", action_weights.shape)
         #print("type(action_weights): ", type(action_weights))
