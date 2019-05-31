@@ -79,8 +79,10 @@ class BatchPolopt(RLAlgorithm):
         self.fixed_horizon = fixed_horizon
         if sampler_cls is None:
             if self.policy.vectorized and not force_batch_sampler:
+                print("using vectorized sampler")
                 sampler_cls = VectorizedSampler
             else:
+                print("using batch sampler")
                 sampler_cls = BatchSampler
         if sampler_args is None:
             sampler_args = dict()
@@ -88,6 +90,7 @@ class BatchPolopt(RLAlgorithm):
         self.init_opt()
 
     def start_worker(self):
+        print("starting worker")
         self.sampler.start_worker()
 
     def shutdown_worker(self):
@@ -104,8 +107,7 @@ class BatchPolopt(RLAlgorithm):
         if sess is None:
             sess = tf.Session()
             sess.__enter__()
-            
-        sess.run(tf.global_variables_initializer())
+            sess.run(tf.global_variables_initializer())
         self.start_worker()
         start_time = time.time()
         for itr in range(self.start_itr, self.n_itr):

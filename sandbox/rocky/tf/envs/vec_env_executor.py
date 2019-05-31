@@ -7,6 +7,7 @@ from sandbox.rocky.tf.misc import tensor_utils
 
 class VecEnvExecutor(object):
     def __init__(self, envs, max_path_length):
+        print("Initializing VecEnvExecutor")
         self.envs = envs
         self._action_space = envs[0].action_space
         self._observation_space = envs[0].observation_space

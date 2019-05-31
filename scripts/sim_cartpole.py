@@ -4,7 +4,7 @@ import joblib
 import tensorflow as tf
 
 from rllab.misc.console import query_yes_no
-from rllab.sampler.utils import rollout
+from rllab.sampler.utils import deterministic_rollout
 import numpy as np
 
 if __name__ == "__main__":
@@ -27,7 +27,7 @@ if __name__ == "__main__":
         policy = data['policy']
         env = data['env']
         while True:
-            path = rollout(env, policy, max_path_length=args.max_path_length,
+            path = deterministic_rollout(env, policy, max_path_length=args.max_path_length,
                            animated=True, speedup=args.speedup, always_return_paths=True)
             #obs = path["observations"]
             #print("observations 0, x,xdot: ", obs[0,0:2])

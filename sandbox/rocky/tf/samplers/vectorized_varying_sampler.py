@@ -11,11 +11,11 @@ import rllab.misc.logger as logger
 import itertools
 
 
-class VectorizedSampler(BaseSampler):
+class VectorizedVaryingSampler(BaseSampler):
 
     def __init__(self, algo, n_envs=None):
         print("Initializing VectorizedSampler")
-        super(VectorizedSampler, self).__init__(algo)
+        super().__init__(algo)
         self.n_envs = n_envs
 
     def start_worker(self):
@@ -44,7 +44,8 @@ class VectorizedSampler(BaseSampler):
         logger.log("Obtaining samples for iteration %d..." % itr)
         paths = []
         n_samples = 0
-        import pdb; pdb.set_trace()
+        [e.decay_mass(itr) for e in self.vec_env.envs]
+        print("Mass is now: ", self.vec_env.envs[0].get_param('m'))
         obses = self.vec_env.reset()
         dones = np.asarray([True] * self.vec_env.num_envs)
         running_paths = [None] * self.vec_env.num_envs

@@ -77,6 +77,7 @@ def worker_collect_env_time(G):
 
 class ParallelVecEnvExecutor(object):
     def __init__(self, env, n, max_path_length, scope=None):
+        print("Initializing ParallelVecEnvExecutor")
         if scope is None:
             # initialize random scope
             scope = str(uuid.uuid4())
