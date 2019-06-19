@@ -12,6 +12,9 @@ class VaryWrapper(TfEnv, Serializable):
 
 	def set_param(self, paramname, paramvalue):
 		obj = self._wrapped_env.env.env.env
+		if not hasattr(obj, paramname):
+			# the object should have this attribute already
+			raise AttributeError
 		setattr(obj, paramname, paramvalue)
 
 	def get_param(self, paramname):
@@ -39,7 +42,6 @@ class VaryMassEnv(VaryWrapper, Serializable):
 
 	def set_mass_randomly(self):
 		mrand = np.random.rand()*(self.mf - self.m0) + self.m0
-		print("random mass: ", mrand)
 		self.set_param('m', mrand)
 
 
@@ -59,6 +61,24 @@ class VaryMassRolloutWrapper():
 
 	def step(self, action):
 		return self.env._wrapped_env.step(action)
+
+	def get_state(self):
+		return self.env.get_param('state')
+
+	def set_state(self, s):
+		self.env.set_param('state', s)
+
+	def test_set_state(self):
+		self.render()
+		input('enter to continue')
+		for i in range(8):
+			angle = i*(np.pi/4)
+			self.set_state(np.array([angle, 0.0]))
+			self.render()
+			input('enter to continue')
+
+	def set_mass_randomly(self):
+		self.env.set_mass_randomly()
 
 	
 

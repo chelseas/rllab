@@ -97,7 +97,7 @@ def get_deterministic_action(agent, observation):
 
 
 def deterministic_rollout(env, agent, max_path_length=np.inf, animated=False, speedup=1,
-            always_return_paths=False):
+            always_return_paths=False, verbose=False):
     observations = []
     actions = []
     rewards = []
@@ -110,8 +110,8 @@ def deterministic_rollout(env, agent, max_path_length=np.inf, animated=False, sp
         env.render()
     while path_length < max_path_length:
         a, agent_info = get_deterministic_action(agent, o)
-        print("a is ", a)
-        #import pdb; pdb.set_trace()
+        if verbose:
+            print("a is ", a)
         next_o, r, d, env_info = env.step(a)
         observations.append(env.observation_space.flatten(o))
         rewards.append(r)
